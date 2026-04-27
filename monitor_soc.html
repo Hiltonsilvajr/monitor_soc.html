@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BRF Previdência • Monitor de Chamados SOC</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { app: { bg:'#07111f',panel:'#0f172a',panel2:'#111c30',line:'#22314b',cyan:'#22d3ee',blue:'#38bdf8',green:'#10b981',amber:'#f59e0b',rose:'#ef4444',text:'#e2e8f0',muted:'#94a3b8' } },
+          boxShadow: { soft:'0 12px 30px rgba(0,0,0,.20)', glow:'0 18px 55px rgba(2,6,23,.38)' }
+        }
+      }
+    };
+  </script>
+  <style>
+    :root{--bg:#07111f;--panel:rgba(15,23,42,0.92);--panel2:rgba(17,28,48,0.96);--border:rgba(148,163,184,0.14);--text:#e2e8f0;--muted:#94a3b8;--cyan:#22d3ee}
+    html{scroll-behavior:smooth}
+    body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(circle at top left,rgba(34,211,238,.08),transparent 28%),radial-gradient(circle at top right,rgba(56,189,248,.08),transparent 24%),linear-gradient(180deg,#09111f 0%,#07111f 100%);color:var(--text)}
+    .glass{background:var(--panel);border:1px solid var(--border);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 12px 30px rgba(0,0,0,.16)}
+    .glass-strong{background:var(--panel2);border:1px solid var(--border);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 18px 48px rgba(0,0,0,.22)}
+    .sidebar-link{transition:all .18s ease;border:1px solid transparent}
+    .sidebar-link:hover{background:rgba(255,255,255,.04);border-color:rgba(148,163,184,.12);transform:translateX(2px)}
+    .sidebar-link.active{background:linear-gradient(90deg,rgba(34,211,238,.16),rgba(34,211,238,.05));border-color:rgba(34,211,238,.22);color:#fff}
+    .tab-panel{display:none}.tab-panel.active{display:block}
+    .metric-card{position:relative;overflow:hidden}
+    .metric-card::after{content:"";position:absolute;width:120px;height:120px;right:-30px;top:-30px;border-radius:999px;background:radial-gradient(circle,rgba(255,255,255,.10),transparent 60%);pointer-events:none}
+    .input-dark,.select-dark{width:100%;border-radius:1rem;border:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.92);color:#e2e8f0;padding:.85rem 1rem;outline:none;transition:all .15s ease}
+    .input-dark:focus,.select-dark:focus{border-color:rgba(34,211,238,.45);box-shadow:0 0 0 4px rgba(34,211,238,.08)}
+    .badge{display:inline-flex;align-items:center;gap:.4rem;border-radius:9999px;padding:.38rem .72rem;font-size:.72rem;font-weight:700;line-height:1;white-space:nowrap}
+    .pill{display:inline-flex;align-items:center;gap:.5rem;border-radius:9999px;padding:.55rem .85rem;font-size:.78rem;border:1px solid rgba(148,163,184,.14);background:rgba(255,255,255,.03);color:#cbd5e1}
+    .table-scroll{max-height:62vh;overflow:auto}
+    .table-scroll thead th{position:sticky;top:0;z-index:5}
+    .row-hover:hover{background:rgba(30,41,59,.75)}
+    .modal-scroll{max-height:88vh;overflow-y:auto}
+    .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .toast{animation:toastIn .25s ease forwards}
+    @keyframes toastIn{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+    .table-scroll::-webkit-scrollbar,.modal-scroll::-webkit-scrollbar{width:10px;height:10px}
+    .table-scroll::-webkit-scrollbar-thumb,.modal-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.24);border-radius:999px;border:2px solid transparent;background-clip:padding-box}
+    @media(max-width:1023px){#sidebar{transform:translateX(-100%)}#sidebar.open{transform:translateX(0)}}
+  </style>
+</head>
+<body class="min-h-screen">
+  <div id="toastContainer" class="fixed right-4 top-4 z-[120] space-y-3"></div>
+
+  <header class="sticky top-0 z-40 border-b border-white/10 bg-slate-950/85 backdrop-blur-xl">
+    <div class="mx-auto flex max-w-[1800px] items-center justify-between gap-4 px-4 py-4 lg:px-6 xl:px-8">
+      <div class="flex items-center gap-3">
+        <button id="menuButton" type="button" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 lg:hidden"><i class="fas fa-bars"></i></button>
+        <div class="flex items-center gap-3">
+          <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-400/20"><i class="fas fa-shield-halved"></i></div>
+          <div>
+            <div class="text-lg font-semibold text-white">Monitor de Chamados SOC</div>
+            <div class="text-sm text-slate-400">BRF Previdência • painel executivo</div>
+          </div>
+        </div>
+      </div>
+      <div class="hidden items-center gap-3 lg:flex">
+        <div class="pill"><i class="fas fa-file-excel text-emerald-400"></i><span id="loadedFileName">Nenhum arquivo carregado</span></div>
+        <div class="pill"><i class="fas fa-clock text-cyan-400"></i><span>Atualizado em <span id="updateTime">—</span></span></div>
+      </div>
+      <div class="flex items-center gap-3">
+        <label for="fileInput" class="cursor-pointer inline-flex items-center gap-2 rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400">
+          <i class="fas fa-upload"></i><span class="hidden sm:inline">Carregar planilha XLSX</span><span class="sm:hidden">Upload</span>
+        </label>
+        <input type="file" id="fileInput" class="hidden" accept=".xlsx,.xls" onchange="handleFileUpload(event)" />
+      </div>
+    </div>
+  </header>
+
+  <div class="relative mx-auto flex max-w-[1800px]">
+    <div id="mobileOverlay" class="fixed inset-0 z-30 hidden bg-black/65 lg:hidden"></div>
+    <aside id="sidebar" class="fixed left-0 top-[73px] z-40 h-[calc(100vh-73px)] w-[290px] border-r border-white/10 bg-slate-950/94 p-4 backdrop-blur-2xl transition-transform duration-200 lg:sticky lg:top-[73px]">
+      <div class="flex h-full flex-col">
+        <div class="mb-5 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-soft">
+          <div class="mb-3 flex items-center gap-3">
+            <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300"><i class="fas fa-chart-line"></i></div>
+            <div><div class="text-sm font-semibold text-white">Painel Executivo</div><div class="text-xs text-slate-400">SLA, aging, criticidade e operação</div></div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-3"><div class="text-slate-400">Registros</div><div id="sidebarTotal" class="mt-1 text-lg font-bold text-white">0</div></div>
+            <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-3"><div class="text-slate-400">Críticos</div><div id="sidebarCritical" class="mt-1 text-lg font-bold text-rose-400">0</div></div>
+          </div>
+        </div>
+        <nav class="space-y-2">
+          <button data-tab="dashboard" type="button" class="sidebar-link active flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm text-slate-300"><i class="fas fa-gauge-high text-cyan-400"></i><span>Dashboard</span></button>
+          <button data-tab="pendentes" type="button" class="sidebar-link flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm text-slate-300"><i class="fas fa-triangle-exclamation text-amber-400"></i><span>Pendentes &amp; Homologação</span></button>
+          <button data-tab="todos" type="button" class="sidebar-link flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm text-slate-300"><i class="fas fa-table-list text-slate-300"></i><span>Todos os Chamados</span></button>
+          <button data-tab="sla" type="button" class="sidebar-link flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm text-slate-300"><i class="fas fa-file-contract text-cyan-300"></i><span>Regras de SLA</span></button>
+        </nav>
+        <div class="mt-6 rounded-3xl border border-white/10 bg-white/5 p-4 text-xs text-slate-400">
+          <div class="mb-2 flex items-center gap-2 text-slate-200"><i class="fas fa-circle-info text-cyan-400"></i><span class="font-medium">Compatibilidade</span></div>
+          <p class="leading-6">Trata automaticamente colunas como <span class="text-slate-200">SOC</span>, <span class="text-slate-200">Soc</span>, <span class="text-slate-200">Data Abertura</span>, <span class="text-slate-200">Conteúdo</span> e <span class="text-slate-200">Situação</span>.</p>
+        </div>
+        <div class="mt-auto border-t border-white/10 pt-6 text-center text-sm text-slate-400">BRF Previdência</div>
+      </div>
+    </aside>
+
+    <main class="min-w-0 flex-1 px-4 py-5 lg:px-6 xl:px-8">
+      <section class="glass-strong mb-6 rounded-[28px] p-5 lg:p-6">
+        <div class="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div class="mb-2 inline-flex items-center gap-2 rounded-full border border-cyan-400/15 bg-cyan-400/8 px-3 py-1 text-xs font-medium text-cyan-300"><i class="fas fa-wave-square"></i><span>Monitoramento operacional e gerencial</span></div>
+            <h1 class="text-2xl font-semibold tracking-tight text-white lg:text-3xl">Acompanhamento executivo de chamados SOC</h1>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Carregue a planilha XLSX para visualizar indicadores de SLA, aging, pendências com cliente, homologação, prioridades e visão consolidada da operação.</p>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-2 xl:min-w-[360px] xl:max-w-[420px]">
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-4"><div class="text-xs uppercase tracking-[.12em] text-slate-500">Chamados exibidos</div><div id="recordsCounter" class="mt-2 text-3xl font-bold text-white">0</div><div id="recordsCounterSub" class="mt-1 text-xs text-slate-400">0 de 0 registros</div></div>
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-4"><div class="text-xs uppercase tracking-[.12em] text-slate-500">Status do arquivo</div><div id="fileStatus" class="mt-2 text-sm font-semibold text-amber-300">Aguardando upload</div><div class="mt-1 text-xs text-slate-400">Uso local no navegador</div></div>
+          </div>
+        </div>
+        <div class="mt-6 rounded-[24px] border border-white/10 bg-slate-900/40 p-4 lg:p-5">
+          <div class="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div><h2 class="text-sm font-semibold text-white">Filtros e pesquisa</h2><p class="text-xs text-slate-400">Busca por SOC, assunto, solicitante, projeto e situação</p></div>
+            <button id="clearFiltersBtn" type="button" class="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"><i class="fas fa-rotate-left"></i>Limpar filtros</button>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <div class="xl:col-span-2"><label class="mb-2 block text-xs font-medium text-slate-400">Pesquisa rápida</label><div class="relative"><i class="fas fa-search pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i><input id="searchInput" type="text" class="input-dark pl-11" placeholder="SOC, assunto, solicitante, projeto..." /></div></div>
+            <div><label class="mb-2 block text-xs font-medium text-slate-400">Situação</label><select id="filterSituacao" class="select-dark"><option value="">Todas</option></select></div>
+            <div><label class="mb-2 block text-xs font-medium text-slate-400">Prioridade</label><select id="filterPrioridade" class="select-dark"><option value="">Todas</option></select></div>
+            <div><label class="mb-2 block text-xs font-medium text-slate-400">Projeto</label><select id="filterProjeto" class="select-dark"><option value="">Todos</option></select></div>
+            <div><label class="mb-2 block text-xs font-medium text-slate-400">Solicitante</label><select id="filterSolicitante" class="select-dark"><option value="">Todos</option></select></div>
+          </div>
+          <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <div><label class="mb-2 block text-xs font-medium text-slate-400">Dias em aberto</label><select id="filterAging" class="select-dark"><option value="">Todas as faixas</option><option value="0-3">0 a 3 dias</option><option value="4-7">4 a 7 dias</option><option value="8-14">8 a 14 dias</option><option value="15-30">15 a 30 dias</option><option value="31+">31 dias ou mais</option></select></div>
+            <div class="xl:col-span-5 flex flex-wrap items-end gap-2">
+              <div class="pill"><i class="fas fa-filter text-cyan-400"></i><span id="activeFilterSummary">Sem filtros ativos</span></div>
+              <div class="pill"><i class="fas fa-database text-sky-400"></i><span id="datasetSummary">Nenhum dado carregado</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="emptyState" class="mb-6">
+        <div class="glass rounded-[32px] p-8 lg:p-10">
+          <div class="mx-auto max-w-3xl text-center">
+            <div class="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[26px] bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-400/20"><i class="fas fa-file-arrow-up text-3xl"></i></div>
+            <h3 class="text-2xl font-semibold text-white">Carregue uma planilha para iniciar</h3>
+            <p class="mt-3 text-sm leading-7 text-slate-400">Arquivo XLSX com colunas: <span class="text-slate-200">Soc</span>, <span class="text-slate-200">Assunto</span>, <span class="text-slate-200">Situação</span>, <span class="text-slate-200">Data Abertura</span>, <span class="text-slate-200">Projeto</span>, <span class="text-slate-200">Prioridade</span>, <span class="text-slate-200">Solicitante</span>, <span class="text-slate-200">Conteúdo</span>.</p>
+            <label for="fileInput" class="mt-6 cursor-pointer inline-flex items-center gap-2 rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"><i class="fas fa-upload"></i>Carregar planilha XLSX</label>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-dashboard" class="tab-panel active space-y-6">
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6" id="metricCards"></div>
+        <div class="grid gap-6 xl:grid-cols-12">
+          <div class="glass rounded-[28px] p-5 xl:col-span-4"><div class="mb-4 flex items-center justify-between"><div><h3 class="text-base font-semibold text-white">Distribuição por status</h3><p class="text-xs text-slate-400">Baseado na planilha carregada</p></div><span class="badge border border-cyan-400/20 bg-cyan-500/10 text-cyan-300"><i class="fas fa-chart-pie"></i> Status</span></div><div class="h-[260px]"><canvas id="statusChart"></canvas></div></div>
+          <div class="glass rounded-[28px] p-5 xl:col-span-4"><div class="mb-4 flex items-center justify-between"><div><h3 class="text-base font-semibold text-white">Chamados por prioridade</h3><p class="text-xs text-slate-400">Urgente, Alta, Média e Baixa</p></div><span class="badge border border-sky-400/20 bg-sky-500/10 text-sky-300"><i class="fas fa-signal"></i> Prioridade</span></div><div class="h-[260px]"><canvas id="priorityChart"></canvas></div></div>
+          <div class="glass rounded-[28px] p-5 xl:col-span-4"><div class="mb-4 flex items-center justify-between"><div><h3 class="text-base font-semibold text-white">Aging por faixa de dias</h3><p class="text-xs text-slate-400">Tempo em aberto</p></div><span class="badge border border-amber-400/20 bg-amber-500/10 text-amber-300"><i class="fas fa-hourglass-half"></i> Aging</span></div><div class="h-[260px]"><canvas id="agingChart"></canvas></div></div>
+          <div class="glass rounded-[28px] p-5 xl:col-span-12"><div class="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"><div><h3 class="text-base font-semibold text-white">Evolução de chamados por data de abertura</h3><p class="text-xs text-slate-400">Exibido quando existirem datas válidas na planilha</p></div><span id="trendInfo" class="badge border border-white/10 bg-white/5 text-slate-300"><i class="fas fa-calendar-days"></i> Sem dados suficientes</span></div><div class="h-[320px]"><canvas id="trendChart"></canvas></div></div>
+        </div>
+      </section>
+
+      <section id="tab-pendentes" class="tab-panel space-y-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div><h2 class="text-2xl font-semibold text-white">Pendentes com Cliente, Homologação e Em Andamento</h2><p class="mt-1 text-sm text-slate-400">Visão prioritária para risco operacional, aging e criticidade.</p></div>
+          <div class="pill"><i class="fas fa-triangle-exclamation text-amber-400"></i><span id="pendingSummaryBadge">0 registros monitorados</span></div>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5" id="pendingTopCards"></div>
+        <div class="glass rounded-[28px] overflow-hidden">
+          <div class="flex flex-col gap-3 border-b border-white/10 px-5 py-4 lg:flex-row lg:items-center lg:justify-between"><div><h3 class="text-base font-semibold text-white">Fila de acompanhamento</h3><p class="text-xs text-slate-400">Ordenada por criticidade e dias em aberto</p></div><div class="text-xs text-slate-400">Clique na linha para detalhes</div></div>
+          <div class="table-scroll"><table class="min-w-full text-sm"><thead class="bg-slate-900/95 text-slate-400"><tr><th class="px-5 py-4 text-left font-medium">SOC</th><th class="px-5 py-4 text-left font-medium">Assunto</th><th class="px-5 py-4 text-left font-medium">Situação</th><th class="px-5 py-4 text-left font-medium">Projeto</th><th class="px-5 py-4 text-left font-medium">Prioridade</th><th class="px-5 py-4 text-left font-medium">Solicitante</th><th class="px-5 py-4 text-left font-medium">Abertura</th><th class="px-5 py-4 text-center font-medium">Dias</th><th class="px-5 py-4 text-left font-medium">Risco / SLA</th></tr></thead><tbody id="tbodyPendentes" class="divide-y divide-white/5"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-todos" class="tab-panel space-y-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div><h2 class="text-2xl font-semibold text-white">Todos os chamados</h2><p class="mt-1 text-sm text-slate-400">Visão consolidada após aplicação dos filtros</p></div>
+          <div class="pill"><i class="fas fa-table text-cyan-400"></i><span id="allTicketsBadge">0 chamados listados</span></div>
+        </div>
+        <div class="glass rounded-[28px] overflow-hidden">
+          <div class="flex flex-col gap-3 border-b border-white/10 px-5 py-4 lg:flex-row lg:items-center lg:justify-between"><div><h3 class="text-base font-semibold text-white">Base completa</h3><p class="text-xs text-slate-400">Tabela geral com status, prioridade, aging e criticidade</p></div><div class="text-xs text-slate-400">Clique na linha para detalhes</div></div>
+          <div class="table-scroll"><table class="min-w-full text-sm"><thead class="bg-slate-900/95 text-slate-400"><tr><th class="px-5 py-4 text-left font-medium">SOC</th><th class="px-5 py-4 text-left font-medium">Assunto</th><th class="px-5 py-4 text-left font-medium">Situação</th><th class="px-5 py-4 text-left font-medium">Projeto</th><th class="px-5 py-4 text-left font-medium">Prioridade</th><th class="px-5 py-4 text-left font-medium">Solicitante</th><th class="px-5 py-4 text-left font-medium">Data abertura</th><th class="px-5 py-4 text-center font-medium">Dias em aberto</th><th class="px-5 py-4 text-left font-medium">Criticidade</th></tr></thead><tbody id="tbodyTodos" class="divide-y divide-white/5"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-sla" class="tab-panel space-y-6">
+        <div><h2 class="text-2xl font-semibold text-white">Regras oficiais de SLA</h2><p class="mt-1 text-sm text-slate-400">Referência para leitura de prazo de resposta e criticidade</p></div>
+        <div class="grid gap-6 xl:grid-cols-12">
+          <div class="glass rounded-[28px] p-5 xl:col-span-8">
+            <div class="mb-4 flex items-center gap-3"><div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-300"><i class="fas fa-business-time"></i></div><div><h3 class="text-base font-semibold text-white">Matriz de SLA — Anexo IV</h3><p class="text-xs text-slate-400">Prazos oficiais por nível de prioridade</p></div></div>
+            <div class="overflow-hidden rounded-3xl border border-white/10"><table class="min-w-full text-sm"><thead class="bg-slate-900/95 text-cyan-300"><tr><th class="px-6 py-4 text-left">Nível</th><th class="px-6 py-4 text-center">Prazo solução do problema</th><th class="px-6 py-4 text-center">Prazo solução da causa</th></tr></thead><tbody class="divide-y divide-white/5 text-slate-200"><tr class="bg-white/[0.02]"><td class="px-6 py-4 font-bold text-rose-300">URGENTE</td><td class="px-6 py-4 text-center font-bold">4 horas úteis</td><td class="px-6 py-4 text-center">95 horas úteis</td></tr><tr><td class="px-6 py-4 font-bold text-orange-300">ALTA</td><td class="px-6 py-4 text-center font-bold">8 horas úteis</td><td class="px-6 py-4 text-center">95 horas úteis</td></tr><tr class="bg-white/[0.02]"><td class="px-6 py-4 font-bold text-amber-300">MÉDIA</td><td class="px-6 py-4 text-center">24 horas úteis</td><td class="px-6 py-4 text-center">114 horas úteis</td></tr><tr><td class="px-6 py-4 font-bold text-emerald-300">BAIXA</td><td class="px-6 py-4 text-center">48 horas úteis</td><td class="px-6 py-4 text-center">133 horas úteis</td></tr></tbody></table></div>
+          </div>
+          <div class="glass rounded-[28px] p-5 xl:col-span-4">
+            <div class="mb-4 flex items-center gap-3"><div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-300"><i class="fas fa-triangle-exclamation"></i></div><div><h3 class="text-base font-semibold text-white">Critérios de criticidade</h3><p class="text-xs text-slate-400">Tempo em aberto por prioridade</p></div></div>
+            <div class="space-y-3">
+              <div class="rounded-2xl border border-rose-400/15 bg-rose-500/8 p-4"><div class="text-sm font-semibold text-rose-300">Urgente</div><div class="mt-1 text-sm text-slate-300">Crítico a partir de 3 dias</div></div>
+              <div class="rounded-2xl border border-orange-400/15 bg-orange-500/8 p-4"><div class="text-sm font-semibold text-orange-300">Alta</div><div class="mt-1 text-sm text-slate-300">Crítico a partir de 6 dias</div></div>
+              <div class="rounded-2xl border border-amber-400/15 bg-amber-500/8 p-4"><div class="text-sm font-semibold text-amber-300">Média</div><div class="mt-1 text-sm text-slate-300">Crítico a partir de 10 dias</div></div>
+              <div class="rounded-2xl border border-emerald-400/15 bg-emerald-500/8 p-4"><div class="text-sm font-semibold text-emerald-300">Baixa</div><div class="mt-1 text-sm text-slate-300">Crítico a partir de 15 dias</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modalBackdrop" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/75 p-4">
+    <div class="glass-strong modal-scroll w-full max-w-5xl rounded-[30px]">
+      <div class="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-slate-950/90 px-6 py-5 backdrop-blur-xl">
+        <div><div class="text-xs uppercase tracking-[.15em] text-slate-500">Detalhamento do chamado</div><h3 id="modalTitle" class="mt-1 text-xl font-semibold text-white">SOC —</h3></div>
+        <button id="closeModalBtn" type="button" class="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10"><i class="fas fa-xmark text-lg"></i></button>
+      </div>
+      <div id="modalContent" class="space-y-6 p-6 lg:p-8"></div>
+    </div>
+  </div>
+
+<script>
+const state = { raw:[], filtered:[], charts:{}, activeTab:'dashboard', fileName:'', lastUpdate:null };
+
+document.addEventListener('DOMContentLoaded', init);
+
+function init() { bindUI(); showTab('dashboard'); renderAll(); carregarDadosAutomatico(); }
+
+function bindUI() {
+  document.getElementById('menuButton')?.addEventListener('click', toggleSidebar);
+  document.getElementById('mobileOverlay')?.addEventListener('click', closeSidebar);
+  document.getElementById('clearFiltersBtn')?.addEventListener('click', clearFilters);
+  document.getElementById('closeModalBtn')?.addEventListener('click', closeModal);
+  document.getElementById('modalBackdrop')?.addEventListener('click', e => { if(e.target.id==='modalBackdrop') closeModal(); });
+  document.querySelectorAll('[data-tab]').forEach(btn => btn.addEventListener('click', () => { showTab(btn.dataset.tab); closeSidebar(); }));
+  ['searchInput','filterSituacao','filterPrioridade','filterProjeto','filterSolicitante','filterAging'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.addEventListener(id==='searchInput'?'input':'change', applyFilters);
+  });
+  document.getElementById('tbodyPendentes')?.addEventListener('click', handleTableClick);
+  document.getElementById('tbodyTodos')?.addEventListener('click', handleTableClick);
+  document.addEventListener('keydown', e => { if(e.key==='Escape'){closeModal();closeSidebar();} });
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('mobileOverlay').classList.toggle('hidden');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('mobileOverlay').classList.add('hidden');
+}
+
+function showTab(tab) {
+  state.activeTab = tab;
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-'+tab)?.classList.add('active');
+  document.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+}
+
+function handleFileUpload(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array', cellDates:true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      if (!sheet) { showToast('Não foi possível localizar a aba da planilha.','error'); return; }
+      const json = XLSX.utils.sheet_to_json(sheet, { defval:'' });
+      if (!json.length) { showToast('A planilha está vazia.','warning'); return; }
+      const normalized = json.map((row,i) => normalizeRow(row,i)).filter(r => r.soc||r.assunto||r.situacao||r.projeto||r.solicitante);
+      if (!normalized.length) { showToast('Nenhum registro válido encontrado.','warning'); return; }
+      state.raw = normalized;
+      state.fileName = file.name;
+      state.lastUpdate = new Date();
+      populateFilters();
+      applyFilters();
+      showToast('Arquivo carregado: '+file.name,'success');
+    } catch(err) {
+      console.error(err);
+      showToast('Erro ao ler a planilha: '+err.message,'error');
+    }
+  };
+  reader.onerror = () => showToast('Falha ao ler o arquivo.','error');
+  reader.readAsArrayBuffer(file);
+}
+
+function normalizeRow(row, index) {
+  const map = {};
+  Object.keys(row||{}).forEach(key => { map[nk(key)] = row[key]; });
+  const dataOrig = alias(map,['datadeabertura','dataabertura','abertura','data'])||'';
+  const dataObj = parseDate(dataOrig);
+  const r = {
+    id: index+1,
+    soc: st(alias(map,['soc']))||'',
+    assunto: st(alias(map,['assunto','titulo','titulochamado']))||'',
+    situacao: st(alias(map,['situacao','status']))||'Não informada',
+    projeto: st(alias(map,['projeto','sistema','modulo','produto']))||'Não informado',
+    prioridade: normPriority(alias(map,['prioridade','criticidade','nivel']))||'Não informada',
+    solicitante: st(alias(map,['solicitante','cliente','usuario','requisitante']))||'Não informado',
+    conteudo: st(alias(map,['conteudo','conteúdo','descricao','detalhe','detalhes','conteudodasolicitacao','conteudosolicitacao']))||'Não informado',
+    dataAberturaOriginal: dataOrig,
+    dataAbertura: dataObj,
+    dataAberturaLabel: fmtDate(dataObj,dataOrig)
+  };
+  r.diasEmAberto = calcDias(r.dataAbertura);
+  r.statusKey = classifyStatus(r.situacao);
+  r.critico = isCritical(r);
+  r.risco = getRisk(r);
+  r.slaPrazo = getSLA(r.prioridade);
+  return r;
+}
+
+function nk(v){ return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function st(v){ return String(v==null?'':v).trim(); }
+function alias(map,keys){ for(const k of keys){ if(map[k]!==undefined&&map[k]!==null&&String(map[k]).trim()!=='') return map[k]; } return ''; }
+function normPriority(v){ const t=st(v).toLowerCase(); if(!t) return 'Não informada'; if(t.includes('urg')) return 'Urgente'; if(t.includes('alt')) return 'Alta'; if(t.includes('med')) return 'Média'; if(t.includes('baix')) return 'Baixa'; return st(v); }
+
+function parseDate(v) {
+  if(!v&&v!==0) return null;
+  if(v instanceof Date && !isNaN(v)) return new Date(v.getFullYear(),v.getMonth(),v.getDate());
+  if(typeof v==='number') { const p=XLSX.SSF.parse_date_code(v); if(p) return new Date(p.y,p.m-1,p.d); }
+  const t=String(v).trim(); if(!t) return null;
+  const br=t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
+  if(br){ let y=Number(br[3]); if(y<100) y+=2000; const d=new Date(y,Number(br[2])-1,Number(br[1])); if(!isNaN(d)) return d; }
+  const g=new Date(t); if(!isNaN(g)) return new Date(g.getFullYear(),g.getMonth(),g.getDate());
+  return null;
+}
+function fmtDate(d,fb){ if(d&&!isNaN(d)) return d.toLocaleDateString('pt-BR'); return st(fb)||'—'; }
+function calcDias(d){ if(!d||isNaN(d)) return 0; const today=new Date(); const s=new Date(today.getFullYear(),today.getMonth(),today.getDate()); return Math.max(0,Math.ceil((s-d)/86400000)); }
+
+function classifyStatus(s) {
+  const t=st(s).toLowerCase();
+  if(t.includes('pendente com o cliente')||t.includes('pendente cliente')) return 'pendente_cliente';
+  if(t.includes('em homolog')||t.includes('homologacao')||t.includes('homologação')) return 'homologacao';
+  if(t.includes('em andamento')||t==='andamento') return 'andamento';
+  if(t.includes('homologado')) return 'homologado';
+  if(t.includes('fechado')||t.includes('concluido')||t.includes('encerrado')||t.includes('resolvido')) return 'concluido';
+  if(t.includes('aberto')) return 'aberto';
+  return 'outros';
+}
+function isCritical(r){ const d=Number(r.diasEmAberto||0),p=r.prioridade; if(p==='Urgente'&&d>=3) return true; if(p==='Alta'&&d>=6) return true; if(p==='Média'&&d>=10) return true; if(p==='Baixa'&&d>=15) return true; return false; }
+function getRisk(r){ if(r.critico) return 'Crítico'; const d=Number(r.diasEmAberto||0); if(d>=8) return 'Atenção'; if(d>=4) return 'Monitorar'; return 'Controlado'; }
+function getSLA(p){ if(p==='Urgente') return '4h úteis'; if(p==='Alta') return '8h úteis'; if(p==='Média') return '24h úteis'; if(p==='Baixa') return '48h úteis'; return '—'; }
+
+function populateFilters() {
+  fillSelect('filterSituacao', uniq(state.raw.map(r=>r.situacao)), 'Todas');
+  fillSelect('filterPrioridade', uniq(state.raw.map(r=>r.prioridade)), 'Todas');
+  fillSelect('filterProjeto', uniq(state.raw.map(r=>r.projeto)), 'Todos');
+  fillSelect('filterSolicitante', uniq(state.raw.map(r=>r.solicitante)), 'Todos');
+}
+function fillSelect(id,vals,label) {
+  const el=document.getElementById(id); if(!el) return;
+  const cur=el.value;
+  el.innerHTML=`<option value="">${label}</option>`;
+  vals.forEach(v=>{ const o=document.createElement('option'); o.value=o.textContent=v; el.appendChild(o); });
+  if([...el.options].some(o=>o.value===cur)) el.value=cur;
+}
+function uniq(arr){ return [...new Set(arr.filter(v=>st(v)!=''))].sort((a,b)=>String(a).localeCompare(String(b),'pt-BR')); }
+
+function clearFilters() {
+  ['searchInput','filterSituacao','filterPrioridade','filterProjeto','filterSolicitante','filterAging'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  applyFilters();
+}
+
+function applyFilters() {
+  const search=nk(document.getElementById('searchInput')?.value||'');
+  const sit=document.getElementById('filterSituacao')?.value||'';
+  const pri=document.getElementById('filterPrioridade')?.value||'';
+  const proj=document.getElementById('filterProjeto')?.value||'';
+  const sol=document.getElementById('filterSolicitante')?.value||'';
+  const aging=document.getElementById('filterAging')?.value||'';
+  state.filtered = state.raw.filter(r => {
+    const ms=!search||[r.soc,r.assunto,r.solicitante,r.projeto,r.situacao].some(v=>nk(v).includes(search));
+    return ms&&(!sit||r.situacao===sit)&&(!pri||r.prioridade===pri)&&(!proj||r.projeto===proj)&&(!sol||r.solicitante===sol)&&(!aging||checkAging(r.diasEmAberto,aging));
+  });
+  renderAll();
+}
+function checkAging(d,r){ d=Number(d||0); if(r==='0-3') return d<=3; if(r==='4-7') return d>=4&&d<=7; if(r==='8-14') return d>=8&&d<=14; if(r==='15-30') return d>=15&&d<=30; if(r==='31+') return d>=31; return true; }
+
+function renderAll() { updateTopInfo(); toggleEmptyState(); renderMetricCards(); renderPendingTopCards(); renderPendingTable(); renderAllTable(); renderCharts(); updateFilterSummary(); }
+
+function updateTopInfo() {
+  const total=state.raw.length, filtered=state.filtered.length, critical=state.filtered.filter(r=>r.critico).length;
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+  set('loadedFileName', state.fileName||'Nenhum arquivo carregado');
+  set('updateTime', state.lastUpdate?state.lastUpdate.toLocaleString('pt-BR'):'—');
+  set('sidebarTotal', total); set('sidebarCritical', critical);
+  set('recordsCounter', filtered); set('recordsCounterSub', `${filtered} de ${total} registros`);
+  set('datasetSummary', total?`${total} registros carregados`:'Nenhum dado carregado');
+  const fs=document.getElementById('fileStatus');
+  if(fs){ fs.textContent=total?'Arquivo carregado':'Aguardando upload'; fs.className=total?'mt-2 text-sm font-semibold text-emerald-300':'mt-2 text-sm font-semibold text-amber-300'; }
+}
+function toggleEmptyState() { const e=document.getElementById('emptyState'); if(e) e.style.display=state.raw.length?'none':'block'; }
+function updateFilterSummary() {
+  const active=[];
+  if(st(document.getElementById('searchInput')?.value)) active.push('busca');
+  if(st(document.getElementById('filterSituacao')?.value)) active.push('situação');
+  if(st(document.getElementById('filterPrioridade')?.value)) active.push('prioridade');
+  if(st(document.getElementById('filterProjeto')?.value)) active.push('projeto');
+  if(st(document.getElementById('filterSolicitante')?.value)) active.push('solicitante');
+  if(st(document.getElementById('filterAging')?.value)) active.push('aging');
+  const el=document.getElementById('activeFilterSummary');
+  if(el) el.textContent=active.length?`${active.length} filtro(s) ativo(s)`:'Sem filtros ativos';
+}
+
+function renderMetricCards() {
+  const data=state.filtered, total=data.length;
+  const pendCli=data.filter(r=>r.statusKey==='pendente_cliente').length;
+  const homolog=data.filter(r=>r.statusKey==='homologacao').length;
+  const andamento=data.filter(r=>r.statusKey==='andamento').length;
+  const criticos=data.filter(r=>r.critico).length;
+  const media=total?(data.reduce((s,r)=>s+(r.diasEmAberto||0),0)/total).toFixed(1):'0.0';
+  const cards=[
+    {title:'Total de chamados',value:total,icon:'fa-layer-group',color:'text-white',box:'bg-white/5 border-white/10'},
+    {title:'Pendentes com cliente',value:pendCli,icon:'fa-user-clock',color:'text-rose-300',box:'bg-rose-500/10 border-rose-400/15'},
+    {title:'Em homologação',value:homolog,icon:'fa-vial-circle-check',color:'text-amber-300',box:'bg-amber-500/10 border-amber-400/15'},
+    {title:'Em andamento',value:andamento,icon:'fa-gears',color:'text-yellow-300',box:'bg-yellow-500/10 border-yellow-400/15'},
+    {title:'Média dias em aberto',value:`${media} dias`,icon:'fa-calendar-day',color:'text-cyan-300',box:'bg-cyan-500/10 border-cyan-400/15'},
+    {title:'Chamados críticos',value:criticos,icon:'fa-triangle-exclamation',color:'text-rose-300',box:'bg-rose-500/10 border-rose-400/15'}
+  ];
+  const c=document.getElementById('metricCards'); if(!c) return;
+  c.innerHTML=cards.map(card=>`<div class="metric-card glass rounded-[26px] p-5 border ${card.box}"><div class="flex items-start justify-between gap-4"><div><div class="text-xs uppercase tracking-[.12em] text-slate-400">${esc(card.title)}</div><div class="mt-3 text-3xl font-bold ${card.color}">${esc(String(card.value))}</div></div><div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950/40 ${card.color}"><i class="fas ${card.icon}"></i></div></div></div>`).join('');
+}
+
+function getPendingRows() {
+  return state.filtered.filter(r=>['pendente_cliente','homologacao','andamento'].includes(r.statusKey)).sort((a,b)=>{ if(a.critico!==b.critico) return a.critico?-1:1; return (b.diasEmAberto||0)-(a.diasEmAberto||0); });
+}
+
+function renderPendingTopCards() {
+  const data=getPendingRows(), total=data.length;
+  const criticos=data.filter(r=>r.critico).length;
+  const pendCli=data.filter(r=>r.statusKey==='pendente_cliente').length;
+  const homolog=data.filter(r=>r.statusKey==='homologacao').length;
+  const media=total?(data.reduce((s,r)=>s+(r.diasEmAberto||0),0)/total).toFixed(1):'0.0';
+  const cards=[{title:'Monitorados',value:total,icon:'fa-list-check',color:'text-white'},{title:'Críticos',value:criticos,icon:'fa-triangle-exclamation',color:'text-rose-300'},{title:'Pend. cliente',value:pendCli,icon:'fa-user-clock',color:'text-rose-300'},{title:'Homologação',value:homolog,icon:'fa-vial-circle-check',color:'text-amber-300'},{title:'Média aging',value:`${media} dias`,icon:'fa-hourglass-half',color:'text-cyan-300'}];
+  const badge=document.getElementById('pendingSummaryBadge'); if(badge) badge.textContent=`${total} registros monitorados`;
+  const c=document.getElementById('pendingTopCards'); if(!c) return;
+  c.innerHTML=cards.map(card=>`<div class="glass rounded-[24px] p-5"><div class="flex items-center justify-between gap-4"><div><div class="text-xs uppercase tracking-[.12em] text-slate-500">${esc(card.title)}</div><div class="mt-2 text-2xl font-bold ${card.color}">${esc(String(card.value))}</div></div><div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/5 ${card.color}"><i class="fas ${card.icon}"></i></div></div></div>`).join('');
+}
+
+function renderPendingTable() {
+  const tbody=document.getElementById('tbodyPendentes'); if(!tbody) return;
+  const rows=getPendingRows();
+  if(!rows.length){ tbody.innerHTML=`<tr><td colspan="9" class="px-5 py-10 text-center text-sm text-slate-400">Nenhum chamado encontrado para esta visão.</td></tr>`; return; }
+  tbody.innerHTML=rows.map(row=>`<tr class="row-hover cursor-pointer" data-id="${row.id}"><td class="px-5 py-4 font-semibold text-cyan-300">${esc(row.soc||'—')}</td><td class="px-5 py-4"><div class="max-w-[320px] line-clamp-2">${esc(row.assunto||'—')}</div></td><td class="px-5 py-4">${statusBadge(row)}</td><td class="px-5 py-4">${esc(row.projeto||'—')}</td><td class="px-5 py-4">${priorityBadge(row.prioridade)}</td><td class="px-5 py-4">${esc(row.solicitante||'—')}</td><td class="px-5 py-4">${esc(row.dataAberturaLabel||'—')}</td><td class="px-5 py-4 text-center">${agingBadge(row.diasEmAberto)}</td><td class="px-5 py-4">${riskBadge(row)}</td></tr>`).join('');
+}
+
+function renderAllTable() {
+  const tbody=document.getElementById('tbodyTodos'); if(!tbody) return;
+  const badge=document.getElementById('allTicketsBadge');
+  const rows=[...state.filtered].sort((a,b)=>(b.diasEmAberto||0)-(a.diasEmAberto||0));
+  if(badge) badge.textContent=`${rows.length} chamados listados`;
+  if(!rows.length){ tbody.innerHTML=`<tr><td colspan="9" class="px-5 py-10 text-center text-sm text-slate-400">Nenhum chamado encontrado com os filtros atuais.</td></tr>`; return; }
+  tbody.innerHTML=rows.map(row=>`<tr class="row-hover cursor-pointer" data-id="${row.id}"><td class="px-5 py-4 font-semibold text-cyan-300">${esc(row.soc||'—')}</td><td class="px-5 py-4"><div class="max-w-[340px] line-clamp-2">${esc(row.assunto||'—')}</div></td><td class="px-5 py-4">${statusBadge(row)}</td><td class="px-5 py-4">${esc(row.projeto||'—')}</td><td class="px-5 py-4">${priorityBadge(row.prioridade)}</td><td class="px-5 py-4">${esc(row.solicitante||'—')}</td><td class="px-5 py-4">${esc(row.dataAberturaLabel||'—')}</td><td class="px-5 py-4 text-center">${agingBadge(row.diasEmAberto)}</td><td class="px-5 py-4">${riskBadge(row)}</td></tr>`).join('');
+}
+
+function handleTableClick(e) {
+  const tr=e.target.closest('tr[data-id]'); if(!tr) return;
+  const row=state.raw.find(r=>r.id===Number(tr.dataset.id)); if(!row) return;
+  openModal(row);
+}
+
+function openModal(row) {
+  document.getElementById('modalTitle').textContent=`SOC ${row.soc||'—'}`;
+  document.getElementById('modalContent').innerHTML=`
+    <div class="grid gap-5 md:grid-cols-2">
+      <div class="glass rounded-[22px] p-5 space-y-3">
+        <h4 class="text-xs uppercase tracking-widest text-slate-500">Identificação</h4>
+        ${mRow('SOC',row.soc)} ${mRow('Situação',statusBadge(row))} ${mRow('Prioridade',priorityBadge(row.prioridade))} ${mRow('Risco',riskBadge(row))}
+      </div>
+      <div class="glass rounded-[22px] p-5 space-y-3">
+        <h4 class="text-xs uppercase tracking-widest text-slate-500">Datas e Prazos</h4>
+        ${mRow('Data de abertura',esc(row.dataAberturaLabel))} ${mRow('Dias em aberto',agingBadge(row.diasEmAberto))} ${mRow('SLA (prazo)',esc(row.slaPrazo))} ${mRow('Solicitante',esc(row.solicitante))}
+      </div>
+    </div>
+    <div class="glass rounded-[22px] p-5 space-y-3">
+      <h4 class="text-xs uppercase tracking-widest text-slate-500">Assunto</h4>
+      <p class="text-sm text-slate-200 leading-7">${esc(row.assunto||'—')}</p>
+    </div>
+    <div class="glass rounded-[22px] p-5 space-y-3">
+      <h4 class="text-xs uppercase tracking-widest text-slate-500">Projeto / Tipo</h4>
+      <p class="text-sm text-slate-200">${esc(row.projeto||'—')}</p>
+    </div>
+    <div class="glass rounded-[22px] p-5 space-y-3">
+      <h4 class="text-xs uppercase tracking-widest text-slate-500">Conteúdo da Solicitação</h4>
+      <p class="text-sm text-slate-300 leading-7 whitespace-pre-wrap">${esc(row.conteudo||'—')}</p>
+    </div>`;
+  document.getElementById('modalBackdrop').classList.remove('hidden');
+  document.getElementById('modalBackdrop').classList.add('flex');
+}
+function mRow(label,value){ return `<div class="flex items-start justify-between gap-3"><span class="text-xs text-slate-500 shrink-0">${label}</span><span class="text-sm text-right">${value}</span></div>`; }
+function closeModal(){ document.getElementById('modalBackdrop').classList.add('hidden'); document.getElementById('modalBackdrop').classList.remove('flex'); }
+
+function statusBadge(row) {
+  const s=row.statusKey, label=row.situacao;
+  const cfg={pendente_cliente:['bg-rose-500/20 border-rose-400/30 text-rose-300','fa-user-clock'],homologacao:['bg-amber-500/20 border-amber-400/30 text-amber-300','fa-vial-circle-check'],andamento:['bg-yellow-500/20 border-yellow-400/30 text-yellow-300','fa-gears'],homologado:['bg-emerald-500/20 border-emerald-400/30 text-emerald-300','fa-check-circle'],concluido:['bg-slate-500/20 border-slate-400/30 text-slate-300','fa-check'],aberto:['bg-sky-500/20 border-sky-400/30 text-sky-300','fa-lock-open']};
+  const c=cfg[s]||['bg-white/5 border-white/10 text-slate-400','fa-circle'];
+  return `<span class="badge border ${c[0]}"><i class="fas ${c[1]}"></i>${esc(label)}</span>`;
+}
+function priorityBadge(p) {
+  const cfg={Urgente:'bg-rose-500/20 border-rose-400/30 text-rose-300',Alta:'bg-orange-500/20 border-orange-400/30 text-orange-300',Média:'bg-amber-500/20 border-amber-400/30 text-amber-300',Baixa:'bg-emerald-500/20 border-emerald-400/30 text-emerald-300'};
+  const c=cfg[p]||'bg-white/5 border-white/10 text-slate-400';
+  return `<span class="badge border ${c}">${esc(p||'—')}</span>`;
+}
+function agingBadge(d) {
+  d=Number(d||0);
+  let c='bg-emerald-500/20 text-emerald-300';
+  if(d>=31) c='bg-rose-500/30 text-rose-200 font-bold';
+  else if(d>=15) c='bg-rose-500/20 text-rose-300';
+  else if(d>=8) c='bg-amber-500/20 text-amber-300';
+  else if(d>=4) c='bg-yellow-500/20 text-yellow-300';
+  return `<span class="badge ${c}">${d}d</span>`;
+}
+function riskBadge(row) {
+  const r=row.risco;
+  const cfg={Crítico:'bg-rose-500/20 border-rose-400/30 text-rose-300',Atenção:'bg-amber-500/20 border-amber-400/30 text-amber-300',Monitorar:'bg-yellow-500/20 border-yellow-400/30 text-yellow-300',Controlado:'bg-emerald-500/20 border-emerald-400/30 text-emerald-300'};
+  const c=cfg[r]||'bg-white/5 border-white/10 text-slate-400';
+  return `<span class="badge border ${c}">${esc(r)}</span>`;
+}
+
+function renderCharts() {
+  const data=state.filtered;
+  // Status chart
+  const statusMap={};
+  data.forEach(r=>{ statusMap[r.situacao]=(statusMap[r.situacao]||0)+1; });
+  renderChart('statusChart','doughnut',Object.keys(statusMap),Object.values(statusMap),['#22d3ee','#f59e0b','#ef4444','#10b981','#38bdf8','#94a3b8','#6366f1','#ec4899']);
+
+  // Priority chart
+  const priOrder=['Urgente','Alta','Média','Baixa','Não informada'];
+  const priMap={};
+  data.forEach(r=>{ priMap[r.prioridade]=(priMap[r.prioridade]||0)+1; });
+  const priLabels=priOrder.filter(k=>priMap[k]);
+  renderChart('priorityChart','bar',priLabels,priLabels.map(k=>priMap[k]),['#ef4444','#f97316','#f59e0b','#10b981','#94a3b8']);
+
+  // Aging chart
+  const agingBuckets={'0-3':0,'4-7':0,'8-14':0,'15-30':0,'31+':0};
+  data.forEach(r=>{ const d=r.diasEmAberto||0; if(d<=3) agingBuckets['0-3']++; else if(d<=7) agingBuckets['4-7']++; else if(d<=14) agingBuckets['8-14']++; else if(d<=30) agingBuckets['15-30']++; else agingBuckets['31+']++; });
+  renderChart('agingChart','bar',Object.keys(agingBuckets),Object.values(agingBuckets),['#10b981','#22d3ee','#f59e0b','#f97316','#ef4444']);
+
+  // Trend chart
+  const dateMap={};
+  data.forEach(r=>{ if(r.dataAbertura&&!isNaN(r.dataAbertura)){ const k=r.dataAbertura.toLocaleDateString('pt-BR',{month:'short',year:'numeric'}); dateMap[k]=(dateMap[k]||0)+1; } });
+  const trendKeys=Object.keys(dateMap).slice(-12);
+  const trendEl=document.getElementById('trendInfo');
+  if(trendKeys.length>1){
+    if(trendEl){ trendEl.textContent=`${trendKeys.length} meses com dados`; }
+    renderChart('trendChart','line',trendKeys,trendKeys.map(k=>dateMap[k]),['#22d3ee'],true);
+  } else {
+    if(trendEl) trendEl.textContent='Sem dados suficientes';
+    const c=state.charts['trendChart']; if(c){ c.destroy(); delete state.charts['trendChart']; }
+  }
+}
+
+function renderChart(id,type,labels,values,colors,isLine=false) {
+  const canvas=document.getElementById(id); if(!canvas) return;
+  if(state.charts[id]){ state.charts[id].destroy(); }
+  const ctx=canvas.getContext('2d');
+  const cfg={
+    type,
+    data:{ labels, datasets:[{ data:values, backgroundColor:isLine?'rgba(34,211,238,0.15)':colors, borderColor:isLine?'#22d3ee':colors, borderWidth:isLine?2:0, fill:isLine, tension:isLine?0.4:0, pointBackgroundColor:isLine?'#22d3ee':undefined, pointRadius:isLine?4:undefined }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:type==='doughnut', labels:{ color:'#94a3b8', font:{size:12} } } }, scales: type==='doughnut'?{}:{ x:{ ticks:{ color:'#64748b', font:{size:11} }, grid:{ color:'rgba(255,255,255,0.05)' } }, y:{ ticks:{ color:'#64748b', font:{size:11} }, grid:{ color:'rgba(255,255,255,0.05)' }, beginAtZero:true } } }
+  };
+  state.charts[id]=new Chart(ctx,cfg);
+}
+
+function showToast(msg,type='info') {
+  const c=document.getElementById('toastContainer'); if(!c) return;
+  const colors={success:'bg-emerald-500/20 border-emerald-400/30 text-emerald-300',error:'bg-rose-500/20 border-rose-400/30 text-rose-300',warning:'bg-amber-500/20 border-amber-400/30 text-amber-300',info:'bg-cyan-500/20 border-cyan-400/30 text-cyan-300'};
+  const icons={success:'fa-check-circle',error:'fa-circle-xmark',warning:'fa-triangle-exclamation',info:'fa-circle-info'};
+  const div=document.createElement('div');
+  div.className=`toast glass rounded-2xl border px-4 py-3 flex items-center gap-3 text-sm font-medium ${colors[type]||colors.info}`;
+  div.innerHTML=`<i class="fas ${icons[type]||icons.info}"></i><span>${esc(msg)}</span>`;
+  c.appendChild(div);
+  setTimeout(()=>div.remove(),4000);
+}
+
+
+    // ── Auto-carregamento do Excel do servidor ────────────────────────────────
+    async function carregarDadosAutomatico() {
+      try {
+        const resp = await fetch('/dados', { cache: 'no-store' });
+        if (!resp.ok) {
+          console.warn('Servidor nao disponivel, use upload manual.');
+          return;
+        }
+        const buffer = await resp.arrayBuffer();
+        const wb = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        if (!sheet) return;
+        const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        if (!json.length) return;
+        const normalized = json.map((row, i) => normalizeRow(row, i)).filter(r => r.soc || r.assunto || r.situacao || r.projeto || r.solicitante);
+        if (!normalized.length) return;
+        state.raw = normalized;
+        state.fileName = 'Relatorio-Solicitacoes.xlsx (auto)';
+        state.lastUpdate = new Date();
+        populateFilters();
+        applyFilters();
+        showToast('Dados atualizados automaticamente!', 'success');
+
+        // Verificar atualizacao a cada 5 minutos
+        setTimeout(carregarDadosAutomatico, 5 * 60 * 1000);
+      } catch (err) {
+        console.warn('Carregamento automatico indisponivel:', err.message);
+      }
+    }
+
+    function esc(v){ return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>
